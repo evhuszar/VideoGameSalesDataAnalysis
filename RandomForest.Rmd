@@ -1,0 +1,118 @@
+```{r}
+#load libraries
+suppressMessages(library(rpart)) 
+suppressMessages(library(rattle))
+suppressMessages(library(rpart.plot))
+suppressMessages(library(caret))
+suppressMessages(library(forcats))
+suppressMessages(library(dplyr))
+suppressMessages(library(randomForest))
+suppressMessages(library(lattice))
+suppressMessages(library(naniar))
+```
+# Tree and Random Forest
+```{r}
+#Create a matrix using the data to turn each categorical column into multiple Boolean columns
+X = model.matrix(Global_Sales~., data=vgData)
+X = data.frame(X)
+X = X[,-1]
+X$Global_Sales = vgData$Global_Sales
+```
+
+```{r}
+#calculate the root node error
+n = length(vgData$Global_Sales)
+rootMean = mean(vgData$Global_Sales)
+relTree1 = (t(vgData$Global_Sales - rootMean) %*% (vgData$Global_Sales - rootMean))/n
+```
+
+
+```{r}
+#Grow the full tree using cp=0.01
+tree1<- rpart(Global_Sales ~ ., data = X, cp = 0.01, method = "anova")
+```  
+  
+```{r}
+#Show the table for cross validation of the tree
+set.seed(27)
+knitr::kable(round(tree1$cptable,2), caption = "Tree Cross Validation Results")
+```
+Table 4 shows the results from cross validation where the 4 column is the percent reduction in the root node error for the validation data. Using cross validation to test the validation accuracy of the tree shows that three splits had the best test accuracy. The test accuracy is 85.7% of the root node error which is a MSE of 4.12 and an RMSE of 2.03. This is not much better than the root node error and is about the same as the standard deviation of the global sales since it means the predictions are about 2,030,000 off from the true global sales on average. 
+```{r}
+#Grow the tree with 3 splits
+tree2<- rpart(Global_Sales ~ ., data = X, cp = tree1$cptable[3,], method = "anova")
+
+#plot the tree
+fancyRpartPlot(tree2, sub = "Figure 3.1: Tree with 3 Splits")
+```
+Figure 3.1 shows the final tree with 3 splits. The tree splits are on if the Critic Score was high, if the publisher was Nintendo, and if the platform was the PS3.  Video games that had a high critic score and were published by Nintendo had the highest predicted global sales which was 4,000,000 million.   Video games with a critic score high not published by Nintendo that were on the PS3 had a predicted total global sales of 3,300,000.  The worst predicted global sales were games that did not have a high critic score.  They were only predicted to have 370,000 global sales. Since the pruned tree did not have a great test RMSE and did not use a lot of the features to split, a random forest will be used instead. 
+
+
+```{r}
+library(randomForest)
+#create a random forest using 10 columns
+set.seed(27)
+
+#return each row into a factor
+for (i in 2:87){
+  X[,i] = as.factor(X[,i])
+}
+rand.GlobalSales <- randomForest(Global_Sales~.,
+                  data = X, mtry = 10,
+                  importance = TRUE,
+                  ntree = 1000,
+                  compete= FALSE)
+```
+
+```{r}
+#Calculated the out of bag RMSE
+predict.OOB <- rand.GlobalSales$predicted
+n = length(predict.OOB)
+residuals = (X$Global_Sales - predict.OOB)
+MSE = sum(sort(residuals)^2)/n
+RMSErand = sqrt(MSE)
+```
+
+After making the random forest the predictive accuracy calculated using the out of bag observations is 1.844. Meaning on average the predictions are 1,844,000 global sales off from the true global sales. This is a lot better than the pruned tree's accuracy.
+
+```{r, fig.height = 10, fig.width = 5, fig.align = "center"}
+#Save which features have a positive impact on the forest RMSE
+goodfeatures <- which(importance(rand.GlobalSales)[,1] > 0)
+
+#Show a bar chart of the importance
+barchart(sort(importance(rand.GlobalSales)[,1][goodfeatures]),
+xlab = "Percent Increase in OOB Error",
+main = "Figure 3.2: Importance")
+```
+Figure 3.2 shows the importance for the forest that had a increase in OOB error rate. The features that were not important to the data set where the platforms NES, And, DSIW, 3DS, GEN, and XBL.  As well as the genre action adventure, education, and platform, the publishers Microsoft and Sega, the developer Hudson Soft, and lastly ESRB Rating KA. This is consistent with the box plots shown in Section 2, as many of these features did not have a lot of data and they ended up not being important for the random forest. When these features were permuted they ended up decreasing the OOB error rate, however removing these features and creating a new forest did not improve the test RMSE, so they will be left in the model. The most important features were Genre MMO, Critic Score high, Platform OSX, Critic Score unknown, Platform Nintendo, Year, and Platform PS.  The importance shows that the Platform Nintendo and Critic Score high are important to Global Sales. This is what the tree in 3.1 shows as well. However now the platform PS3 is not as important in predicting global sales. The missing values for Critic Score ended up being important to the model as well. 
+
+```{r, fig.asp=0.5}
+#Show partial plots for the two features that were important for both the pruned tree and the random forest
+g1=partialPlot(rand.GlobalSales, X,
+                x.var = "Critic_Scorehigh",
+                xlab = "Critic Score high",
+                ylab = "Global Sales",
+                main = "Figure 3.3: Critic Score High")
+g1=partialPlot(rand.GlobalSales, X,
+                x.var = "PublisherNintendo",
+                xlab = "Publisher Nintendo",
+                ylab = "Global Sales",
+                main = "Figure 3.4: Published by Nintendo")
+```
+Figure 3.3 and 3.4 show the two features that were important to both the tree in Figure 3.1 and the random forest.  The partial plot for the random forest shows that the Publisher Nintendo and Critic Score High lead to a higher predicted global sales similar to the tree. The features Platform PS3, Xbox, and OSX as well as Genre MMO also lead to a higher global sales, but not does not improve the global sales as much as the features in Figure 3.3 and 3.4.
+
+```{r, fig.asp=0.5}
+
+#Show the partial plots for critic score unknown and year
+g1=partialPlot(rand.GlobalSales, X,
+                x.var = "Critic_ScoreUnknown",
+                xlab = "Critic Score Unknown",
+                ylab = "Global Sales",
+                main = "Figure 3.5: Critic Score Unknown")
+g4=partialPlot(rand.GlobalSales, X,
+                x.var = "Year",
+                xlab = "Year",
+                ylab = "Global Sales",
+                main = "Figure 3.6: Year")
+```
+Figure 3.5 shows the partial plot for the missing values of Critic and User Score. It shows that the video games that do not have a score have a lower overall predicted global sales. Figure 3.6 is the partial plot for year. It shows as year increases the global sales decrease. Again this is reasonable since if a game is on the market for longer it will probably have more sales.
