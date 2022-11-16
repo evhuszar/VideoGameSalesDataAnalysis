@@ -1,0 +1,170 @@
+```{r}
+#load libraries
+suppressMessages(library(rpart)) 
+suppressMessages(library(rattle))
+suppressMessages(library(rpart.plot))
+suppressMessages(library(caret))
+suppressMessages(library(forcats))
+suppressMessages(library(dplyr))
+suppressMessages(library(randomForest))
+suppressMessages(library(lattice))
+suppressMessages(library(naniar))
+```
+
+## Results
+
+```{r}
+suppressMessages(library(caret))
+suppressMessages(library(glmnet))
+
+#Set a random seed
+set.seed(27)
+
+Xlm = vgData
+Xlm$year2 = (X$Year)^2
+
+#Create the model matrix
+XD <- model.matrix(Global_Sales ~ ., data = Xlm)
+XD = data.frame(XD)
+XD = XD
+XD$Global_Sales =vgData$Global_Sales
+
+#Values of alpha and lambda to test
+tuningGrid <- data.frame("alpha" = seq(from = 0, to = 1, by = .05), "lambda"= seq(from =0, to =5, by =.25))
+
+set.seed(27)
+
+#Preform cross validation for elastic net
+globalSales_elnet = train(
+  Global_Sales ~ ., data = XD,
+  method = "glmnet",
+  tuneGrid = tuningGrid,
+  trControl = trainControl(method = "cv", number = 10)
+)
+
+#Find the lowest RMSE
+location = which(globalSales_elnet$results$RMSE==min(globalSales_elnet$results$RMSE))
+ElasticRMSE = globalSales_elnet$results[location,3] 
+suppressMessages(knitr::kable(round(globalSales_elnet$results[location,1:3],2),caption = "Tuning Parameters for Best Test RMSE"))
+```
+
+Table 6 shows the results of cross validation with the different values of $\lambda$ and $\alpha$. The values that are shown are the values that gave the lowest test RMSE. Since $\lambda$ = 0 was chosen this means the most is the same as a least square linear regression since now to get the coefficients it is only minimizing RSS without any penalty. The test RMSE calculated from 10 fold cross validation is 1.94, so the predictions ar about 1,940,000 sales off on average.
+
+```{r}
+#Create the elastic net model with lambda 0 and alpha=0 and find the coefficients
+ridgeFinal <- glmnet(XD[,-c(1,90)],XD$Global_Sales,alpha=0,lambda=0)
+Betas <- as.numeric(coef(ridgeFinal))
+rowNames <- colnames(XD[,-90])
+BetasFinal <- data.frame("Column Names" = rowNames, "Coefficients" = round(Betas,2))
+knitr::kable(BetasFinal[order(BetasFinal$Coefficients),],
+    caption = "Elastic Net Features and Coefficients")
+```
+Table 7 above shows the coefficients for the model.  The model uses all features, except one, so there are 88 $\hat{\beta}$ values in all. The only feature that was removed from the model is ESRB Rating KA, since it has a coefficient of 0, the other coefficients that were close to zero like for $Year^2$ were rounded up. The KA rating also had negative important in the Random Forest. The features with the largest positive coefficients, besides the intercept are the platforms And and Xbox One, publisher Nintendo, critic score high, and genre MMO. This is similar to the results from the first and second model. The forest in model 1 found the platform And was not important, but with elastic net it shows that the platform And leads to a higher global sales by about 1,519,000 sales. Nintendo increases the sales by 1,490,138. The features that lead to a lower Global Sales are any publisher that is not EA sports or Nintendo, in fact 11 out of the 16 platforms have 11 out of 12 the most negative coefficients. The coefficients for these platforms are between -0.86 and -0.43. Therefore if the video game was published by one of these 11 publishers the predicted global sales decrease anywhere from 452,561 to 860,876. Platform DSIW also has a negative coefficient of 0.85. The feature Year, which was used in the forest and LSLR has a coefficient of -0.01 and -0.0000000031 for $Year^2$. Since the earliest year is 1970 these small coefficients still have an affect on global sales. So again the newer the game the lower the predicted global sales.  Interestingly, the missing critic scores have a positive coefficient in this model of 0.013, the only critic score that does not increase the predicted global sales is an average score. 
+
+
+\begin{table}[ht]
+\centering
+\caption {RMSE of All Regression Models} \label{tab:} 
+\begin{tabular}{rl}
+  \hline
+ Model.Name & RMSE \\ 
+  \hline
+ LSLR & 0.62 \\ 
+ Elastic Net & 1.94 \\ 
+ Regression Tree & 2.03 \\ 
+ Random Forest & 1.84 \\ 
+   \hline
+\end{tabular}
+\end{table}
+
+Table 8 shows the test RMSE for each model. It shows the best model was LSLR using best subset selection with 6 features. It had the lowest test RMSE of 0.62. The second best model was the random forest. The features that lead to the highest predicted global sales for all the models were the publisher Nintendo and games that had a higher critic and user score. The features that lead to a lower predicted global sales were the year the game was released for every model except Elastic Net.
+
+```{r}
+#Prepare the test data by turning it into a matrix with each categorical columns turned into Boolean
+vgTest$Global_Sales = 0
+XTest = model.matrix(Global_Sales~.,vgTest)
+XTest = data.frame(XTest)
+
+#remove the column of ones that was added
+XTest = XTest[,-1]
+XTest$Global_Sales = vgTest$Global_Sales
+
+#create the predictions using the pruned tree
+tree_preds = predict(tree2,XTest)
+
+#turn the columns into factors if they are not numeric
+for (i in 2:87){
+  XTest[,i] = factor(XTest[,i], levels = levels(X[,i]))
+}
+
+#create the predictions for the test data using the random forest
+randforest_preds = predict(rand.GlobalSales,XTest)
+
+#apply the transformation to year for the linear models
+XTest$year2 = XTest$Year^2
+XTest$Global_Sales = 0
+Betas = data.frame(Betas)
+
+#create the predictions using the final LSLR model
+lm_preds = predict(lmFinal,XTest)
+
+#Create the predictions using the final elastic net model
+XTestnew = model.matrix(Global_Sales~.,vgTest)
+XTestnew = data.frame(XTestnew)
+XTestnew$year2 = XTestnew$Year^2
+elastic_preds = data.matrix(XTestnew)%*%data.matrix(Betas)
+
+```
+
+
+To get a better idea of how the models are predicting global sales differently they will be used to predict the global sales for the data that was removed during Section 2.
+
+```{r,fig.asp=0.7}
+#Plot the predictions for each model against year
+g1 = ggplot(data=XTest, aes(x=Year, y = tree_preds)) + geom_point(col = 'green')+ labs(title = "Figure 6.1:",x = "Year", y="Tree Predictions")
+g2 = ggplot(data=XTest, aes(x=Year, y = randforest_preds)) + geom_point(col='purple')+ labs(title = "Figure 6.2:",x = "Year", y="Random Forest Predictions")
+g3 = ggplot(data=XTest, aes(x=Year, y=elastic_preds)) + geom_point(col='red')+ labs(title = "Figure 6.3:",x = "Year", y="Elastic Net Predictions")
+g4 = ggplot(data=XTest, aes(x=Year, y = lm_preds)) + geom_point(col='blue')+ labs(title = "Figure 6.4:",x = "Year", y="Least Squares Prediction")
+gridExtra::grid.arrange(g1,g2,g3,g4, ncol=2,nrow=2)
+```
+
+Figure 6.1-6.4 show the predictions for global sales for each model plotted against year. Figure 6.1 shows the Tree predictions for the tree. Since the tree only had four leaves there are only 4 different predictions for the video game global sales. Figure 6.2 shows the Random Forest predictions, which seems to keep the same relationship with year that the training data had.  Figure 6.3 shows the Elastic Net predictions and Figure 6.4 shows the least squares linear regression predictions. In Figure 6.2 and 6.4 some of the predictions are less than zero, while in figure 6.3 a lot of the global sales predictions are less than zero. This is not reasonable since a game cannot sell negative copies. To get a better idea of the predictions we will look at all four models predictions on the same plot. 
+
+```{r, fig.asp=0.5}
+#show the plots for all 3 final models on one plot against year
+suppressMessages(ggplot(XTest, aes(x = Year)) + 
+  geom_point(aes(y = tree_preds), color = "green") + 
+  geom_point(aes(y = randforest_preds), color = "purple") + 
+  geom_point(aes(y = elastic_preds), color = "red") + 
+  geom_point(aes(y = lm_preds), color = "blue") + labs(title = "Figure 6.5:",x = "Year", y="Global Sales Predictions"))
+```
+Figure 6.5 shows the distribution of the predictions for the test data for each model. They all seem to have the same distribution, while it seems the Elastic Net predictions (red) are under estimating while the Random Forest predictions (purple) are over estimating. The least squares linear regression predictions (blue) seem to be in the middle of the two. To look at if the predictions for games are similar we will look at the top predicted global sales for the models for Random Forest, Elastic Net, and LSLR for both the test and training data.
+
+
+```{r}
+#create the predictions for the training data
+randforest_preds_train = predict(rand.GlobalSales,X)
+lm_preds_train = lmFinal$fitted
+elastic_preds_train = data.matrix(XD[,-90])%*%data.matrix(Betas)
+
+```
+
+```{r}
+#find the test and training video game that each model predicted to have the highest global sales
+
+largestLMTest = which(lm_preds == max(lm_preds))
+largestENTest = which(elastic_preds == max(elastic_preds))
+largestRFTest = which(randforest_preds == max(randforest_preds))
+
+largestLM = which(lm_preds_train == max(lm_preds_train))
+largestEN = which(elastic_preds_train == max(elastic_preds_train))
+largestRF = which(randforest_preds_train == max(randforest_preds_train))
+
+#show the predictions
+mostPredictedSales = data.frame("Model" =c("Random Forest", "Elastic Net","LSLR"), "Training Title" = c(titles[largestRF][1],titles[largestEN][1],titles[largestRF][1]),"Test Title" = c(titlesTest[largestRFTest][1],titlesTest[largestENTest][1],titlesTest[largestLMTest][1]))
+knitr::kable(mostPredictedSales, caption = "Video Game with Highest Predicted Global Sales")
+
+```
+Table 9 shows the predicted game with the highest global sales price for all three final models. All three models predicted a different game to have the highest global sales in the test data. Both LSLR and Random Forest both predicted Wii Sports to have the highest global sales in the training data. This is correct since in Section 2 it was shown to be the highest sold video game on the list. The Random Forest predicted it to have 23.68 global sales while LSLR predicted it to have 4.57 global sales, however it's true value is 82.86 global sales. Therefore the predictions for each model seem to be underestimating the video games with higher global sales because most of the data was already on the low side. One solution to the short comings of the models is instead to pick a threshold for global sales and explore whether or not the sales for a video-game were above or below that threshold. Looking at global sales as a category may allow the models to pick up on features related to even higher sales prices.
+
+Since the goal was prediction and association for global sales as a numeric feature, in all the best model for both prediction and association was the least squares regression model with six features. This is because it had the lowest test RMSE and was the easiest to interpret to learn which features were able to predict sales price. However, while all the models underestimate sales, the random forest model underestimates the least for the video games that did have higher sales, so if you only want to predict games with higher sales the random forest may be better. 
