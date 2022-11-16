@@ -1,0 +1,85 @@
+```{r}
+#load libraries
+suppressMessages(library(rpart)) 
+suppressMessages(library(rattle))
+suppressMessages(library(rpart.plot))
+suppressMessages(library(caret))
+suppressMessages(library(forcats))
+suppressMessages(library(dplyr))
+suppressMessages(library(randomForest))
+suppressMessages(library(lattice))
+suppressMessages(library(naniar))
+```
+## Least Squares Regression
+
+```{r}
+library(leaps)
+set.seed(27)
+#run bss for all features with transformations, except ESRB Rating using method forward
+bss_sales = regsubsets(Global_Sales~Year+Year^2+Genre+Platform_3DS+Platform_And+Platform_DC+Platform_DS+Platform_DSIW+Platform_GB+Platform_GBA+Platform_GC+Platform_GEN+Platform_NES+Platform_NS+Platform_OSX+Platform_PC+Platform_PS+Platform_PS2+Platform_PS3+Platform_PS4+Platform_PSN+Platform_PSP+Platform_PSV+Platform_SAT+Platform_SNES+Platform_VC+Platform_Wii+Platform_X360+Platform_XB+Platform_XBL+Platform_XOne+Platform_Other+Publisher+Developer+Critic_Score, data=vgData, method="forward",really.big=TRUE)
+```
+
+```{r, fig.height = 5, fig.width = 7, fig.align = "center"}
+#plot the results of bss_sales
+plot(bss_sales,scale="adjr", main= "Figure 4.1:")
+```
+After adding a column of $year^2$ above shows the results of BSS in Figure 4.1. The best adjusted $R^2$ seems to be with 6 features. After 6 features the adjusted $R^2$ does not increase much more therefore only those 6 features will be used in the model.
+```{r}
+#Find the features and coefficients for the 6th bss model
+suppressMessages(library(knitr))
+topTen = which(summary(bss_sales)$which[6,]==TRUE)
+
+#show the coefficients
+knitr::kable(coef(bss_sales,6),
+    caption = "LSLR Features and Coefficients",
+    digits = 2
+    )
+```
+Table 5 shows the 6 best features are year, platform PlayStation 3, Xbox 360, and Xbox One, as well as publisher Nintendo, and Critic Score high. Again Nintendo and Critic Score high are important features as they were for the first model. The final model using the coefficient shown in Table 5 is given by:
+$$\begin{aligned}\hat{Global Sales_i} = \\ &  58.71 -0.03Year_i + 0.67PlatformPS3_i +   0.73PlatformX360_i \\ & + 1.49PlatformXOne_i + 1.94PublisherNintendo_i + 1.17CriticScorehigh_i\end{aligned}$$
+The coefficient for year is negative meaning as year increases global sales decrease, similar to the forest in Section 3. The decrease is about 3,000 sales for each year. Games that are published by Nintendo have an increase of 1,940,000 predicted global sales. Similarly, having a Critic Score high increases predicted sales by 1,170,000 and platform Xbox One increases it 1,490,000. Lastly the platforms PlayStation 3 and Xbox 360 increase sales by 670,000 and 730,000 respectively.
+
+```{r}
+set.seed(27)
+#Run 10 fold cross validation for the BSS model  
+storage <- data.frame("K" = rep(NA,10),'RMSE'=rep(NA,10)) 
+n <- nrow(vgData)
+  
+pool <- rep(1:10,ceiling(n/10))
+folds <- sample(pool,n)
+    
+#loop for 10 f
+for (f in 1:10){
+  storage$K[f]=f
+    
+  infolds <- which(folds == f)
+    
+  newTrain <- X[-infolds,]
+  newTest<-X[infolds,] #breaks up data into training and test by row
+  m = length(newTest)
+  
+  #create the model with the training data
+  lmFold = lm(Global_Sales~Year+Platform_PS31+Platform_X3601+Platform_XOne1+PublisherNintendo+Critic_Scorehigh, data=newTrain)
+  
+  #create the predictions using the test data
+  predictions = predict(lmFold,newTest)
+  
+  #save the result
+  storage$RMSE[f] = sqrt(t(predictions - newTest$Global_Sales)%*%(predictions - newTest$Global_Sales)/n)
+    
+    #Store ith RMSE in the data frame
+  }
+```
+
+
+```{r}
+#Calculate the RMSE of the LSLR Model
+LSLRRMSE = mean(storage$RMSE)
+```
+
+After using 10 fold cross validation to evaluate the model with the 6 features the test RMSE is 0.62. This means on average the predictions are about 62,000 sales off which is a 66% percent decrease in test RMSE when compared to the random forest test RMSE in section 3.
+
+```{r}
+#create the final model using all the training data
+lmFinal = lm(Global_Sales~Year+Platform_PS31+Platform_X3601+Platform_XOne1+PublisherNintendo+Critic_Scorehigh, data=X)
+```
