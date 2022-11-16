@@ -14,7 +14,7 @@ suppressMessages(library(naniar))
 
 ```{r}
 #load the data
-vgSales<- read.csv("C:/Users/papri/Downloads/vgsales-12-4-2019-short.csv/vgsales-12-4-2019-short.csv")
+vgSales<- read.csv("vgsales-12-4-2019-short.csv/vgsales-12-4-2019-short.csv")
 ```
 
 ```{r}
