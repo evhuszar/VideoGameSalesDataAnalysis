@@ -1,0 +1,427 @@
+```{r}
+#load libraries
+suppressMessages(library(rpart)) 
+suppressMessages(library(rattle))
+suppressMessages(library(rpart.plot))
+suppressMessages(library(caret))
+suppressMessages(library(forcats))
+suppressMessages(library(dplyr))
+suppressMessages(library(randomForest))
+suppressMessages(library(lattice))
+suppressMessages(library(naniar))
+```
+#Data Cleaning and EDA
+
+```{r}
+#load the data
+vgSales<- read.csv("C:/Users/papri/Downloads/vgsales-12-4-2019-short.csv/vgsales-12-4-2019-short.csv")
+```
+
+```{r}
+#Combining factors together to reduce number of factors.
+convertTooSmall <- function(x){
+  columnHere <- x
+  holder <- as.data.frame(table(columnHere))
+  holderperc <- holder$Freq/sum(holder$Freq)
+  #find which categories appear in less than 10% of the data
+  tooSmall <- which(holderperc < .01)
+  choices <- levels(columnHere)
+  table(columnHere)
+  #Find categories that do not show up often
+  levels(columnHere) <- c(levels(columnHere), "Other")
+  #Combine the categories into other
+  columnHere[columnHere %in% choices[tooSmall]] <- "Other"
+  columnHere <- factor(columnHere)
+  columnHere
+}
+```
+The starting data set has 55,792 rows, however many video games are listed multiple times as they can be released on multiple platforms. To start off for cleaning the data we will look at the 74 different platforms which are listed below.
+
+```{r}
+#show the rows of the column platform
+vgSales$Platform = as.factor(vgSales$Platform)
+knitr::kable(table(vgSales$Platform), caption = "Platforms")
+```
+Table 1 shows platforms like "Aco", "BBCM", "C128", only have one video game listed as released on it. This may because the platform "C128" is one of the first ever gaming platforms and does not have many games on it so a lot of users may have not used some of the platforms listed. To consolidate some of the platforms they will be combined into one column "other". Since most of the video games are the platform PC, we will only keep the platforms that there are more than 600 games on the platform the rest will be combined into 'other'. 
+
+```{r}
+#Combining platform levels into other
+vgSales$Platform <- convertTooSmall(vgSales$Platform)
+knitr::kable(table(vgSales$Platform), caption = "Platforms Combined")
+```
+
+Now Table 2 shows there are only 29 different platforms. The same will be done to the column publisher and developer. There are 8065 different developers and 3069 different publishers. Instead of combining columns that only have less than 600 rows, columns that have less than 100 rows of data will be combined. Now there are 14 different developers and 16 publishers.
+
+In order to remove video games that are listed more than once the rows with the same video game will be combined. The publisher, year, and developer will which ever year, developer, and publisher came first since games can have multiple release years, publishers, and developers. The 29 platform levels will each be turned into a Boolean column, 1 if the video game was released on that platform and 0 if not. Critic Scores and User Scores for the game will be averaged to get the mean score the game was given. Finally the feature for global sales and total shipped will be adding together for each game. The columns for NA sales, Japan sales, and other sales will be removed since they are correlated to global sales and total shipped. 
+
+```{r}
+#Combining factors together to reduce number of factors.
+# Combing developers and publishers twice to reduce levels
+vgSales$Publisher <- convertTooSmall(vgSales$Publisher)
+vgSales$Publisher <- convertTooSmall(vgSales$Publisher)
+```
+
+```{r}
+#Combining factors together to reduce number of factors.
+convertTooSmall <- function(x){
+  columnHere <- x
+  holder <- as.data.frame(table(columnHere))
+  holderperc <- holder$Freq/sum(holder$Freq)
+  #find which categories appear in less than 10% of the data
+  tooSmall <- which(holderperc < .005)
+  choices <- levels(columnHere)
+  table(columnHere)
+  #Find categories that do not show up often
+  levels(columnHere) <- c(levels(columnHere), "Other")
+  #Combine the categories into other
+  columnHere[columnHere %in% choices[tooSmall]] <- "Other"
+  columnHere <- factor(columnHere)
+  columnHere
+}
+
+vgSales$Developer <- convertTooSmall(vgSales$Developer)
+vgSales$Developer <- convertTooSmall(vgSales$Developer)
+vgSales$Developer <- convertTooSmall(vgSales$Developer)
+```
+
+```{r}
+#Create a new data frame with the same titles combined
+
+#save the unique titles
+#vg_titles = unique(vgSales$Name)
+
+#find unique platform
+#platforms = unique(vgSales$Platform)
+
+#length of new data frame
+#tt = length(vg_titles)
+
+#vgData = data.frame("Name" = rep(NA,tt),"Year" = rep(NA,tt),"Genre" = rep(NA,tt), "Platform_3DS" = rep(0,tt),"Platform_And" = rep(0,tt),"Platform_DC" = rep(0,tt),"Platform_DS" = rep(0,tt), "Platform_DSIW" = rep(0,tt), "Platform_GB" =rep(0,tt),  "Platform_GBA" = rep(0,tt), "Platform_GC" = rep(0,tt), "Platform_GEN" = rep(0,tt),"Platform_NES" = rep(0,tt), "Platform_NS" = rep(0,tt),"Platform_OSX"=rep(0,tt),"Platform_PC" = rep(0,tt), "Platform_PS" = rep(0,tt),"Platform_PS2"=rep(0,tt),"Platform_PS3"=rep(0,tt), "Platform_PS4"=rep(0,tt),"Platform_PSN" = rep(0,tt),"Platform_PSP" = rep(0,tt),"Platform_PSV" = rep(0,tt), "Platform_SAT"=rep(0,tt), "Platform_SNES" = rep(0,tt), "Platform_VC" = rep(0,tt), "Platform_Wii" = rep(0,tt), "Platform_X360"=rep(0,tt), "Platform_XB" = rep(0,tt), "Platform_XBL" = rep(0,tt), "Platform_XOne" = rep(0,tt), "Platform_Other" = rep(0,tt), "ESRB_Rating" = rep(NA,tt),"Publisher" =rep(NA,tt),"Developer"=rep(NA,tt),"Critic_Score"=rep(NA,tt),"User_Score"=rep(NA,tt),"Total_Shipped"=rep(NA,tt),"Global_Sales"=rep(NA,tt))
+
+#loop through all titles
+#i = 1  #keep track of what row
+#for (name in vg_titles){
+#  #find the rows with that videogame title
+#  location = which(vgSales$Name == name)
+  
+  #save the name, first year, first ESRB Rating, Publisher, developer, and genre listed for the specific videogame
+#  vgData$Name[i] = name
+#  vgData$Year[i] = unique(vgSales$Year[location])[1]
+#  vgData$ESRB_Rating[i] =unique(vgSales$ESRB_Rating[location])[1]
+#  vgData$Publisher[i]= as.character(unique(vgSales$Publisher[location])[1])
+#  vgData$Developer[i] = as.character(unique(vgSales$Developer[location])[1])
+#  vgData$Genre[i] = as.character(unique(vgSales$Genre[location])[1])
+  
+  #find all unique platforms for the title
+#  gameplat_forms = unique(vgSales$Platform[location])
+  
+  #save a 1 if th platform is in the list
+#  if ("3DS" %in% gameplat_forms){
+#    vgData$Platform_3DS[i] = 1
+#  }
+  
+#  if ("And" %in% gameplat_forms){
+#    vgData$Platform_And[i] = 1
+#  }
+  
+#  if ("DC" %in% gameplat_forms){
+#    vgData$Platform_DC[i] = 1
+#  }
+#  if ("DS" %in% gameplat_forms){
+#    vgData$Platform_DS[i] = 1
+#  }
+  
+#  if ("DSiW" %in% gameplat_forms){
+#    vgData$Platform_DSIW[i] = 1
+#  }
+  
+#  if ("GB" %in% gameplat_forms){
+#    vgData$Platform_GB[i] = 1
+#  }
+#  if ("GBA" %in% gameplat_forms){
+#    vgData$Platform_GBA[i] = 1
+#  }
+#  if ("GC" %in% gameplat_forms){
+#    vgData$Platform_GC[i] = 1
+#  }
+#  if ("GEN" %in% gameplat_forms){
+#    vgData$Platform_GEN[i] = 1
+#  }
+  
+#  if ("NES" %in% gameplat_forms){
+#    vgData$Platform_NES[i] = 1
+#  }
+#  if ("NS" %in% gameplat_forms){
+#    vgData$Platform_NS[i] = 1
+#  }
+#  if ("OSX" %in% gameplat_forms){
+#    vgData$Platform_OSX[i] = 1
+#  }
+#  if ("PC" %in% gameplat_forms){
+#    vgData$Platform_PC[i] = 1
+#  }
+  
+#  if ("PS" %in% gameplat_forms){
+#    vgData$Platform_PS[i] = 1
+#  }
+#  if ("PS2" %in% gameplat_forms){
+#    vgData$Platform_PS2[i] = 1
+#  }
+#  if ("PS3" %in% gameplat_forms){
+#    vgData$Platform_PS3[i] = 1
+#  }  
+#  if ("PS4" %in% gameplat_forms){
+#    vgData$Platform_PS4[i] = 1
+#  }
+  
+#  if ("PSN" %in% gameplat_forms){
+#    vgData$Platform_PSN[i] = 1
+#  }
+#  if ("PSP" %in% gameplat_forms){
+#    vgData$Platform_PSP[i] = 1
+#  }
+#  if ("PSV" %in% gameplat_forms){
+#    vgData$Platform_PSV[i] = 1
+#  }
+#  if ("SAT" %in% gameplat_forms){
+#    vgData$Platform_SAT[i] = 1
+#  }
+  
+#  if ("SNES" %in% gameplat_forms){
+#    vgData$Platform_SNES[i] = 1
+#  }
+#  if ("VC" %in% gameplat_forms){
+#    vgData$Platform_VC[i] = 1
+#  }
+#  if ("Wii" %in% gameplat_forms){
+#    vgData$Platform_Wii[i] = 1
+#  }
+#  if ("X360" %in% gameplat_forms){
+#    vgData$Platform_X360[i] = 1
+#  }
+
+#  if ("XB" %in% gameplat_forms){
+#    vgData$Platform_XB[i] = 1
+#  }
+#  if ("XBL" %in% gameplat_forms){
+#    vgData$Platform_XBL[i] = 1
+#  }
+#  if ("XOne" %in% gameplat_forms){
+#    vgData$Platform_XOne[i] = 1
+#  }  
+#  if ("Other" %in% gameplat_forms){
+#    vgData$Platform_Other[i] = 1
+#  }
+  
+  
+  #take mean of critic score and user score
+#  vgData$Critic_Score[i] = mean(na.omit(unique(vgSales$Critic_Score[location])))
+#  vgData$User_Score[i] = mean(na.omit(unique(vgSales$User_Score[location])))
+  
+  #sum the total shipped and global sales
+#  vgData$Total_Shipped[i] = sum(na.omit(unique(vgSales$Total_Shipped[location])))
+#  vgData$Global_Sales[i] = sum(na.omit(unique(vgSales$Global_Sales[location])))
+  
+  #chance 0 total shipped and global sales to NA
+#  zeros = which(vgData$Total_Shipped == 0)
+#  vgData$Total_Shipped[zeros] = NA
+#  globalZero = which(vgData$Global_Sales == 0)
+#  vgData$Global_Sales[globalZero] = NA
+
+  #Change missing ESRB to NA
+#  ESRBzeros = which(vgData$ESRB_Rating == "")
+#  vgData$ESRB_Rating[ESRBzeros] = NA
+#  i = i+1
+#}
+
+```
+
+
+The new data set now was 37,102 rows, meaning there were 37,102 unique video games in the original data set with 16 columns. Now the titles of the video games can be removed and put aside as they are unique for each row and cannot be used for the models. Next before making the model we will also look at any data that is still missing.
+
+```{r}
+#Save the new data set and comment out the for loop
+#write.csv(vgData, "vgData.csv",row.names = FALSE) 
+```
+
+```{r}
+#load new cleaned data set
+vgData <- read.csv("~/Statistical Learning/vgData.csv")
+```
+
+```{r}
+#Show any values that are still missing
+suppressMessages(vis_miss(vgData[,c(2,3,33,34,35,36,37,38,39)]))+ labs(title = "Figure 2.1:")
+```
+Figure 2.1 shows the missing rows of all columns other than the 29 columns that correspond to platforms and the titles of the video games. Since the data is updated by users, a lot of information is still missing. Global sales are still missing 66.5% of it's data, however many of the missing rows are listed instead in total shipped.  Since they measure similar metrics any missing values in global sales will be filled with the values in total shipped. The same will be done with critic score and user score to get one column for critic score, however if any rows have both a critic score and user score then the average will be used. Only one percent of the column Year is missing so those rows will be removed. Afterwards any rows that still are missing global sales will be removed and set aside to use later to compare the models.
+
+```{r}
+#Replace global sales with total shipped if global sales are missing and total shipped is not
+no_sales = which(is.na(vgData$Global_Sales))
+
+#Replace the missing global sales with the total shipped
+vgData$Global_Sales[no_sales] = vgData$Total_Shipped[no_sales]
+
+#Take the larger of the two values as the global sales
+larger = which(vgData$Global_Sales < vgData$Total_Shipped)
+vgData$Global_Sales[larger] = vgData$Total_Shipped[larger]
+
+#Combing user score and critic score
+yes_user_score = which(is.na(vgData$User_Score) == FALSE)
+
+for (r in yes_user_score){
+  if (is.na(vgData$Critic_Score[r])){
+    vgData$Critic_Score[r] = vgData$User_Score[r]
+  } else {
+  vgData$Critic_Score[r] = mean(vgData$Critic_Score[r], vgData$User_Score[r])
+  }
+}
+
+
+
+vgData = vgData[,-c(37,38)]
+```
+
+
+```{r}
+#chance categorical columns into factors and numeric into numeric
+withZerosData = vgData
+for (i in 3:35){
+  vgData[,i] = as.factor(vgData[,i])
+}
+vgData[,2] = as.numeric(vgData[,2])
+
+
+#find the missing global sales and save two data frames, one with the missing sales and one without
+zeros = which(is.na(vgData$Global_Sales))
+
+vgTest = vgData[zeros,]
+vgData = vgData[-zeros,]
+
+#Remove the missing years from the test data and training data
+zeros2 = which(is.na(vgData$Year))
+zeros3 = which(is.na(vgTest$Year))
+vgData= vgData[-zeros2,]
+vgTest = vgTest[-zeros3,]
+```
+
+
+After removing missing global sales about 40% of the data was removed. To make sure that a large representation of the data was not removed or relationships were not greatly changed from the data we will compare the bar plots of the original data to the data with the rows removed.
+
+```{r, fig.height = 5, fig.width = 6, fig.align = "center"}
+#plot relationships between old data and new data
+g1=suppressMessages(ggplot(withZerosData,aes(x=Year)) + geom_histogram(bins = 15, fill = 'pink',col = 'black') + labs(title = "Figure 2.2:",x = "Year With Missing Data", y= "Frequency"))
+g2=suppressMessages(ggplot(vgData,aes(x=Year)) + geom_histogram(bins = 15, fill = 'pink',col = 'black') + labs(title = "Figure 2.3:",x = "Year with Removed Rows", y="Frequency"))
+gridExtra::grid.arrange(g1,g2, ncol=2,nrow=1)
+```
+Figure 2.2 shows the distribution of year with all the data, while Figure 2.3 shows the distribution of year in the data with rows removed. The distribution of year is about the same even without the data. The mean of the year is a bit smaller and the standard deviation has gotten smaller, but for the most part it is still representative of the original data. The same is true for the features publisher and developer. 
+
+```{r, fig.height = 10, fig.width = 30, fig.align = "center"}
+#plot the relationship between the old and new data
+g1=ggplot(withZerosData,aes(x=Genre)) + geom_bar(fill = 'pink',col = 'black') + labs(title = "Figure 2.4:",x = "Genre with Missing Data")+ theme(text = element_text(size = 20))
+g2=ggplot(vgData,aes(x=Genre)) + geom_bar(fill = 'pink',col = 'black') + labs(title = "Figure 2.5:",x = "Genre with Removed Rows")+ theme(text = element_text(size = 20))
+gridExtra::grid.arrange(g1,g2, ncol=1,nrow=2)
+```
+Figure 2.4 and Figure 2.5 show the change in Genre's distribution. Genre's distribution seems to change a bit. The most popular game genre originally was miscellaneous, after removing rows there are more action games. Since the data is still representative of the different genre's available the change is not too large. However if genre is considered in a model the results may favor a different genre for higher global sales than if the original data was used. 
+
+```{r, fig.height = 4, fig.width = 7, fig.align = "center"}
+#plot the relationship between the old and the new data
+g1=ggplot(withZerosData,aes(x=Platform_PC)) + geom_bar(fill = 'pink',col = 'black') + labs(title = "Figure 2.6:",x = "Games on the PC with Missing Data")
+g2=ggplot(vgData,aes(x=Platform_PC)) + geom_bar(fill = 'pink',col = 'black') + labs(title = "Figure 2.7:",x = "Games on the PC with Removed Rows")
+gridExtra::grid.arrange(g1,g2, ncol=2,nrow=1)
+```
+
+For the most part the different platforms distributions generally did not change. For the platforms NS, OSX, PSN, SAT, VC, XBL, DS, GBA, PS1, PS2, PS3, Xbox 360, Xbox, and the platform other, after removing the rows the ratio is the about the same. Some have a slight decrease, but most it looks the same. The platforms GC, GB, GEN, NES, 3DS, And, DC, PS4, PSP, PSV, SNES, and Wii all have a slightly higher ratio.  The biggest change in the data is the platform PC, or personal computer. Figure 2.6 shows how many games are on the PC in the original data, and Figure 2.7 shows the distribution after the missing values are removed. In the original data set about half the games were released for the PC. After removing the rows now only about one fourth of the data has been released on the PC. This is not a good representation of the true data, however PC still is the most popular platform in the data set.
+
+```{r, fig.height = 4, fig.width = 7, fig.align = "center"}
+#plot the relationship between the old and the new data
+g1=ggplot(withZerosData,aes(x=ESRB_Rating)) + geom_bar(fill = 'pink',col = 'black') + labs(title = "Figure 2.8:",x = "ESRB Rating with Missing Data")
+g2=ggplot(vgData,aes(x=ESRB_Rating)) + geom_bar(fill = 'pink',col = 'black') + labs(title = "Figure 2.9:",x = "ESRB Rating with Removed Rows")
+gridExtra::grid.arrange(g1,g2, ncol=2,nrow=1)
+```
+The last feature is ESRB Rating which had the biggest change. Figure 2.8 shows the distribution with missing data, there are 9 levels not including the missing values.  Figure 2.9 shows after the missing data is removed and there are only 7 levels. After removing the rows that did not have global sales the data no long has the level AO or KA. However the original data set only had 16 games with the rating AO and 3 games with the rating KA. Because this is less than 1% of the data losing these levels did not greatly change the data set, so they can be removed without changing the data too much. They will also need to be removed from the test data so that it can be used for prediction.
+
+
+
+```{r}
+#Show if any data is still missing
+vis_miss(vgData[,c(2,3,33,34,35,36,37)])+ labs(title = "Figure 2.10:")
+```
+Figure 2.10 shows now the only two columns that are missing data are ESRB Rating and Critic Score. Two strategies will be used to remedy the missing data. For critic score since the data is from users it may be telling about the popularity of a game if it does not have a score. Because of this critic score will be turned into a categorical feature with levels "high" for scores above 5, "average" for scores of 5, "low" for scores below 5, and lastly "unknown" if the data is missing. For ESRB rating a model will be created to predict the values of ESRB rating that are missing.  For the column ESRB Rating, only about 37% of the data is still missing.  Because of this imputation will be used.
+
+Imputation is estimating missing values in the original data set to complete the data. The technique that will be used to impute the ESRB Rating is called classification and regression tree imputation. This is when a tree is created using the data that is not missing to predict the missing data. Since the only data that is missing is the ESRB Rating a classification tree will be created.  A classification tree splits the data using the other features; these splits create the leaves that have the final predictions. The prediction for a tree is based off which category of ESRB Rating has the highest percent in a leaf. There are seven levels to ESRB Rating. The metric to measure how good the predictions are is the classification error rate, CER. The CER is the percent of the data that is incorrectly predicted by the tree. Instead of just creating one tree to predict the missing ESRB Ratings 100 trees will be created and the predictions will be whichever rating is predicted the most out of all the trees for each missing row. Using 100 trees instead of just 1 will allow the predictions to use more of the features and compare multiple predictions to get the lowest CER. The CER is computed using the data that is available for ESRB Rating and using cross validation to check the model. Cross validation involves training the 100 trees with a portion of the data and testing with the rest and repeating this 10 times for different portions of the data, so that all the data is used as test data. The final predictions for the missing data will be saved into the data set to complete the feature ESRB Rating.
+
+```{r}
+#changing critic score to categorical for the test and training data
+vgData$Critic_Score = as.numeric(vgData$Critic_Score)
+for (r in 1:length(vgData$Global_Sales)){
+  critic_score = vgData$Critic_Score[r]
+  if (is.na(critic_score)){
+    vgData$Critic_Score[r] = "Unknown"
+  } else if (critic_score > 5){
+    vgData$Critic_Score[r] = "high"
+  } else if (critic_score < 5){
+    vgData$Critic_Score[r] = "low"
+  } else {
+    vgData$Critic_Score[r] = "average"
+  }
+}
+vgData$Critic_Score = as.factor(vgData$Critic_Score)
+
+vgTest$Critic_Score = as.numeric(vgTest$Critic_Score)
+for (r in 1:length(vgTest$Global_Sales)){
+  critic_score = vgTest$Critic_Score[r]
+  if (is.na(critic_score)){
+    vgTest$Critic_Score[r] = "Unknown"
+  } else if (critic_score > 5){
+    vgTest$Critic_Score[r] = "high"
+  } else if (critic_score < 5){
+    vgTest$Critic_Score[r] = "low"
+  } else {
+    vgTest$Critic_Score[r] = "average"
+  }
+}
+vgTest$Critic_Score = as.factor(vgTest$Critic_Score)
+
+```
+
+```{r}
+#imputation for ESRB Rating
+library(missForest)
+
+#Remove titles of video games
+titles = vgData[,1]
+vgData = vgData[,-1]
+set.seed(27)
+
+#Create a classification forest for missing data
+nc_Out <- missForest(vgData, variablewise = TRUE, ntree = 100)
+df=data.frame("Variable" = colnames(vgData), "Error" = nc_Out$OOBerror)
+
+#Save predictions
+vgData <-nc_Out$ximp
+
+#show classification error rate
+location = which(df$Variable == 'ESRB_Rating')
+knitr::kable(df[location,], caption = "CER for ESRB Rating Imputation")
+```
+Table 3 above shows the results of imputation. With the 100 trees the imputation has an error rate of 0.36 this is about 10% less than if all the missing data was assigned to have a rating of E since 46% of the data has the rating E. If any of the models identify ESRB Rating as an important feature it is important to know that the data was imputed and still had a pretty high error. Since about 16% of ESRB Rating is dependent on the other features for certain regression models like a linear model, ESRB Rating will not be considered as one of the features. 
+
+
+```{r}
+#Do the same imputation for the test data
+
+#Save the titles
+titlesTest = vgTest[,1]
+vgTest= vgTest[,-1]
+
+#Remove global sales since they are all missing
+vgTestNoGS = vgTest[,-36]
+vgGS = vgTest[,36]
+set.seed(27)
+
+#Create the forest for the test data and save the values
+nc_Out <- missForest(vgTestNoGS, variablewise = TRUE, ntree = 100)
+vgTest <-nc_Out$ximp
+vgTest$Global_Sales= vgGS
+```
